@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:latest 
+    container_name: flow_pgdb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432" 
+    volumes:
+      - pgdata:/var/lib/postgresql/data 
+      - ./postgres-performance.conf:/tmp/postgres-performance.conf
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    restart: always 
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'      # Increased to 4 CPUs
+          memory: 4G       # Increased to 4GB RAM
+        reservations:
+          cpus: '2.0'      # Reserve 2 CPUs
+          memory: 2G       # Reserve 2GB RAM 
+
+volumes:
+  pgdata:
