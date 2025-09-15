@@ -43,7 +43,7 @@ export default class MyApp extends App {
             }
         });
 
-        this.addYogaPlugin(jwtPlugin);
+        // this.addYogaPlugin(jwtPlugin);
     }
 }
 

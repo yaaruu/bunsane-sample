@@ -23,6 +23,7 @@ import {
 import * as z from "zod";
 
 import jwt from "jsonwebtoken";
+import { Authenticated } from "src/helpers/AuthHelper";
 
 @Component
 export class UserTag extends BaseComponent {}
@@ -96,7 +97,6 @@ const UserInputs = {
     fields: userFields
 })
 class UserService extends BaseService {
-
     @Post("/auth/login")
     async userLogin(req: Request, res: Response) {
         const testJwt = jwt.sign({userId: "test-user-id"}, process.env.JWT_SECRET || "secret", {
@@ -165,8 +165,10 @@ class UserService extends BaseService {
         output: "[User]"
     })
     async getUsers(args: ResolverInput<typeof UserInputs.users>, context: any) {
-        console.log("Context:");
-        console.log(context);
+        Authenticated(context.request, context);
+        //TODO: Remove debug logs
+        console.log("userId:");
+        console.log(context.jwt.payload.userId);
         const { id } = args;
         const query = new Query().with(UserTag);
         if (id) {
@@ -284,7 +286,6 @@ class UserService extends BaseService {
 
     @GraphQLField({type: "User", field: "name"})
     async nameResolver(parent: Entity, args: any, context: any) {
-        console.log(parent);
         const data = await parent.get(NameComponent);
         return data?.value ?? "";
     }
