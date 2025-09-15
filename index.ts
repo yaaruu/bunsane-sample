@@ -1,26 +1,34 @@
 import {
     App,
-    ServiceRegistry
+    ServiceRegistry,
 } from "bunsane";
-
 import { createInlineSigningKeyProvider, extractFromHeader, useJWT } from "@graphql-yoga/plugin-jwt";
 
 const signinKey = process.env.JWT_SECRET || "secret";
 
 import UserService from "./src/services/UserService";
 import PostService from "./src/services/PostService";
+
 export default class MyApp extends App {
     constructor() {
         super();
         ServiceRegistry.registerService(new UserService());
         ServiceRegistry.registerService(new PostService());
 
-        this.addYogaPlugin(useJWT({
+        const jwtPlugin = useJWT({
             signingKeyProviders: [
                 createInlineSigningKeyProvider(signinKey)
             ],
 
-            tokenLookupLocations: [extractFromHeader({name: 'Authorization', prefix: 'Bearer '})],
+            tokenLookupLocations: [
+                (params) => {
+                    const auth = params.request.headers.get('authorization') || params.request.headers.get('Authorization');
+                    if (auth && auth.startsWith('Bearer ')) {
+                        return { token: auth.slice(7) };
+                    }
+                    return undefined;
+                }
+            ],
 
             tokenVerification: {
                 issuer: 'bunsane-example',
@@ -33,7 +41,9 @@ export default class MyApp extends App {
                 missingToken: true,
                 invalidToken: true
             }
-        }))
+        });
+
+        this.addYogaPlugin(jwtPlugin);
     }
 }
 

@@ -1,5 +1,6 @@
 import {
     BaseService,
+    Post
 } from "bunsane/service";
 import { 
     GraphQLField, 
@@ -20,6 +21,8 @@ import {
     handleGraphQLError 
 } from "bunsane";
 import * as z from "zod";
+
+import jwt from "jsonwebtoken";
 
 @Component
 export class UserTag extends BaseComponent {}
@@ -93,6 +96,68 @@ const UserInputs = {
     fields: userFields
 })
 class UserService extends BaseService {
+
+    @Post("/auth/login")
+    async userLogin(req: Request, res: Response) {
+        const testJwt = jwt.sign({userId: "test-user-id"}, process.env.JWT_SECRET || "secret", {
+            issuer: 'bunsane-example',
+            audience: 'bunsane-users',
+            algorithm: 'HS256',
+            expiresIn: '1h'
+        });
+
+        jwt.verify(testJwt, process.env.JWT_SECRET || "secret", (err, decoded) => {
+            if (err) {
+                console.error("JWT Verification Error:", err);
+            }
+            console.log("Decoded JWT:", decoded);
+        });
+        return new Response(JSON.stringify({
+            message: "Login endpoint",
+            token: testJwt
+        }), { status: 200 });
+    }
+
+    @Post("/auth/register")
+    async userRegister(req: Request, res: Response) {
+        try {
+            const body = await req.json();
+            const input = RegisterValidationSchema.parse(body);
+            const check = await new Query()
+                .with(UserTag)
+                .with(EmailComponent, 
+                    Query.filters(
+                        Query.filter("value", "=", input.email)
+                    )
+                )
+                .exec();
+            if(check.length > 0) {
+                return new Response(JSON.stringify({
+                    error: "Email already in use",
+                    code: "EMAIL_ALREADY_EXISTS"
+                }), { status: 400 });
+            }
+            const entity = UserArcheType.fill(input)
+                .createEntity();
+            await entity.save();
+            return new Response(JSON.stringify({
+                message: "User registered successfully",
+                userId: entity.id
+            }), { status: 201 });
+        } catch (err) {
+            if (err instanceof z.ZodError) {
+                return new Response(JSON.stringify({
+                    error: "Validation error",
+                    details: err.issues
+                }), { status: 400 });
+            }
+            console.error(err);
+            return new Response(JSON.stringify({
+                error: "Internal server error"
+            }), { status: 500 });
+        }
+    }
+
     // #region User Queries
     @GraphQLOperation({
         type: "Query",
@@ -100,13 +165,14 @@ class UserService extends BaseService {
         output: "[User]"
     })
     async getUsers(args: ResolverInput<typeof UserInputs.users>, context: any) {
+        console.log("Context:");
+        console.log(context);
         const { id } = args;
         const query = new Query().with(UserTag);
         if (id) {
             query.findById(id);
         }
         const entities = await query.exec();
-        console.log(entities);
         return entities;
     }
     // #endregion
