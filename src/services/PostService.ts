@@ -137,14 +137,18 @@ class PostService extends BaseService {
         if (isFieldRequested(info, 'image')) {
             componentsToLoad.push(ImageViewComponent);
         }
-        query.eagerLoad(componentsToLoad);
+        
+        // Use eagerLoadComponents for better performance
+        query.eagerLoadComponents(componentsToLoad);
+        
         if (args.id) {
             query.findById(args.id);
         }
         const entities = await query.exec();
-        // Related entities still use BatchLoader (optimized separately)
+        
+        // Use loadRelatedEntitiesBatched for optimal relationship loading
         if (isFieldRequested(info, 'image')) {
-            context.images = await BatchLoader.loadRelatedEntities(
+            context.images = await BatchLoader.loadRelatedEntitiesBatched(
                 entities,
                 ImageViewComponent,
                 Entity.LoadMultiple
@@ -152,7 +156,7 @@ class PostService extends BaseService {
         }
        
         if (isFieldRequested(info, 'author')) {
-            context.authors = await BatchLoader.loadRelatedEntities(
+            context.authors = await BatchLoader.loadRelatedEntitiesBatched(
                 entities,
                 AuthorComponent,
                 Entity.LoadMultiple

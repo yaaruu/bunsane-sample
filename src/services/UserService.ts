@@ -171,9 +171,13 @@ class UserService extends BaseService {
         if (id) {
             query.findById(id);
         }
+        
+        // Use eagerLoadComponents for better performance when loading user data
+        query.eagerLoadComponents([NameComponent, EmailComponent, PhoneComponent]);
+        
         const entities = await query.exec();
 
-        // Preload posts for all users to avoid N+1 queries only if 'post' field is requested
+        // Preload posts for all users using optimized batching only if 'post' field is requested
         if (entities.length > 0 && isFieldRequested(info, 'post')) {
             const userIds = entities.map(e => e.id);
             const allPosts = await new Query()
@@ -183,7 +187,7 @@ class UserService extends BaseService {
                         Query.filter("value", Query.filterOp.IN, userIds)
                     )
                 )
-                .eagerLoad([TitleComponent, ImageViewComponent])
+                .eagerLoadComponents([TitleComponent, ImageViewComponent])
                 .exec();
 
             const postsByAuthor = new Map<string, Entity[]>();
