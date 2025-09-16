@@ -106,7 +106,6 @@ class UserService extends BaseService {
             if (err) {
                 console.error("JWT Verification Error:", err);
             }
-            console.log("Decoded JWT:", decoded);
         });
         return new Response(JSON.stringify({
             message: "Login endpoint",
@@ -163,9 +162,6 @@ class UserService extends BaseService {
     })
     async getUsers(args: ResolverInput<typeof UserInputs.users>, context: any, info: any) {
         Authenticated(context.request, context);
-        //TODO: Remove debug logs
-        console.log("userId:");
-        console.log(context.jwt.payload.userId);
         const { id } = args;
         const query = new Query().with(UserTag);
         if (id) {
