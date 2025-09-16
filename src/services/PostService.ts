@@ -1,3 +1,4 @@
+import fs from "fs";
 import {
     BaseService,
 } from "bunsane/service";
@@ -7,20 +8,25 @@ import {
     GraphQLObjectType, 
     GraphQLFieldTypes,
     type ResolverInput,
-    type GraphQLType
+    type GraphQLType,
+    GraphQLScalarType,
+    isFieldRequested
 } from "bunsane/gql";
-import { Entity, BaseComponent, CompData, Component, ArcheType, Query, responseError, handleGraphQLError } from "bunsane";
+import { 
+    Entity, 
+    BaseComponent, 
+    CompData, 
+    Component, 
+    ArcheType, 
+    Query, 
+    responseError, 
+    handleGraphQLError,
+    BatchLoader
+} from "bunsane";
+import { timed } from "bunsane/core/Decorators";
 
-const postFields = {
-    id: GraphQLFieldTypes.ID_REQUIRED,
-    title: GraphQLFieldTypes.STRING_REQUIRED,
-    content: GraphQLFieldTypes.STRING_REQUIRED,
-    date: GraphQLFieldTypes.STRING_OPTIONAL,
-    author: "User!" as GraphQLType,
-    comments: "[Comment]" as GraphQLType
-};
 
-// Input type definitions
+
 const PostInputs = {
     posts: {
         id: GraphQLFieldTypes.ID_OPTIONAL,
@@ -31,7 +37,8 @@ const PostInputs = {
         title: GraphQLFieldTypes.STRING_REQUIRED,
         content: GraphQLFieldTypes.STRING_REQUIRED,
         author: GraphQLFieldTypes.ID_REQUIRED,
-        date: GraphQLFieldTypes.STRING_OPTIONAL
+        date: GraphQLFieldTypes.STRING_OPTIONAL,
+        image: "Upload" as GraphQLType
     } as const
 } as const;
 
@@ -62,15 +69,37 @@ class DateComponent extends BaseComponent {
     value: Date = new Date();
 }
 
+@Component
+class ImageViewComponent extends BaseComponent { // Relation to Image Entity
+    @CompData()
+    value: string | null = "";
+}
+@Component
+class LocalImageComponent extends BaseComponent {
+    @CompData()
+    url: string = "";
+    @CompData()
+    realPath: string = "";
+}
+
 const PostArcheType = new ArcheType([
     PostTag,
     TitleComponent,
     ContentComponent,
     AuthorComponent,
-    DateComponent
+    DateComponent,
+    ImageViewComponent
 ]);
 
-
+const postFields = {
+    id: GraphQLFieldTypes.ID_REQUIRED,
+    title: GraphQLFieldTypes.STRING_REQUIRED,
+    content: GraphQLFieldTypes.STRING_REQUIRED,
+    date: GraphQLFieldTypes.STRING_OPTIONAL,
+    author: "User!" as GraphQLType,
+    comments: "[Comment]" as GraphQLType,
+    image: GraphQLFieldTypes.STRING_OPTIONAL,
+};
 @GraphQLObjectType({
     name: "Post",
     fields: postFields
@@ -82,9 +111,11 @@ const PostArcheType = new ArcheType([
         author: GraphQLFieldTypes.ID_REQUIRED,
         postId: GraphQLFieldTypes.ID_REQUIRED,
         content: GraphQLFieldTypes.STRING_REQUIRED,
-        date: GraphQLFieldTypes.STRING_OPTIONAL,
+        date: "Date",
     }
 })
+@GraphQLScalarType("Date")
+@GraphQLScalarType("Upload")
 class PostService extends BaseService {
     // #region Post Queries
     
@@ -93,12 +124,30 @@ class PostService extends BaseService {
         input: PostInputs.posts,
         output: "[Post]"
     })
-    async posts(args: ResolverInput<typeof PostInputs.posts>): Promise<Entity[]> {
+    @timed("PostService.posts")
+    async posts(args: ResolverInput<typeof PostInputs.posts>, context: any, info: any): Promise<Entity[]> {
         const query = new Query().with(PostTag);
         if (args.id) {
             query.findById(args.id);
         }
         const entities = await query.exec();
+
+        if(isFieldRequested(info, 'image')) {
+            context.images = await BatchLoader.loadRelatedEntities(
+                entities,
+                ImageViewComponent,
+                Entity.LoadMultiple
+            );
+        }
+       
+        if (isFieldRequested(info, 'author')) {
+            // Batch load authors using the utility
+            context.authors = await BatchLoader.loadRelatedEntities(
+                entities,
+                AuthorComponent,
+                Entity.LoadMultiple
+            );
+        }
         return entities;
     }
 
@@ -111,7 +160,7 @@ class PostService extends BaseService {
         input: PostInputs.createPost,
         output: "Post"
     })
-    async createPost(args: ResolverInput<typeof PostInputs.createPost>): Promise<Entity> {
+    async createPost(args: ResolverInput<typeof PostInputs.createPost>, context: any, info: any): Promise<Entity> {
         try {
             const author = await Entity.FindById(args.author);
             if(!author) {
@@ -127,6 +176,29 @@ class PostService extends BaseService {
                 date: args.date ? new Date(args.date) : undefined
             }).createEntity();
 
+            const imageEntity = args.image ? Entity.Create() : null;
+            // TODO: Create helper function to handle file uploads
+            if(imageEntity) {
+                const image = args.image as File;
+                const mimeType = image.type;
+                function getExtensionFromMimeType(mimeType: string): string {
+                    const mimeToExt: Record<string, string> = {
+                        "image/jpeg": "jpg",
+                        "image/png": "png",
+                        "image/gif": "gif",
+                        "image/webp": "webp"
+                    };
+                    return mimeToExt[mimeType] || "bin";
+                }
+                const filename = imageEntity.id + "." + getExtensionFromMimeType(mimeType);
+                const path = `./public/uploads/${filename}`;
+                fs.mkdirSync('./public/uploads', { recursive: true });
+                fs.writeFileSync(path, Buffer.from(await image.arrayBuffer()));
+                imageEntity.add(LocalImageComponent, { url: `/uploads/${filename}`, realPath: path });
+                await imageEntity.save();
+            }
+
+            post.add(ImageViewComponent, {value: imageEntity ? imageEntity.id : null});
             await post.save();
             return post;
         } catch (err) {
@@ -140,34 +212,61 @@ class PostService extends BaseService {
     // #region Post Field Resolvers
 
     @GraphQLField({type: "Post", field: "id"})
-    async idResolver(parent: Entity, args: any, context: any) {
+    async idResolver(parent: Entity, args: any, context: any, info: any) {
         return parent.id;
     }
     
     @GraphQLField({type: "Post", field: "title"})
-    async titleResolver(parent: Entity, args: any, context: any) {
+    async titleResolver(parent: Entity, args: any, context: any, info: any) {
         const data = await parent.get(TitleComponent);
         return data?.value || "";
     }
 
     @GraphQLField({type: "Post", field: "content"})
-    async contentResolver(parent: Entity, args: any, context: any) {
+    async contentResolver(parent: Entity, args: any, context: any, info: any) {
         const data = await parent.get(ContentComponent);
         return data?.value || "";
     }
 
     @GraphQLField({type: "Post", field: "date"})
-    async dateResolver(parent: Entity, args: any, context: any) {
+    async dateResolver(parent: Entity, args: any, context: any, info: any) {
         const data = await parent.get(DateComponent);
         return data?.value || null;
     }
 
     @GraphQLField({type: "Post", field: "author"})
-    async authorResolver(parent: Entity, args: any, context: any) {
+    async authorResolver(parent: Entity, args: any, context: any, info: any) {
         const data = await parent.get(AuthorComponent);
         const authorId = data?.value;
-        const authorEntity = authorId ? await Entity.FindById(authorId) : null;
+        if (!authorId) return null;
+        
+        // Use preloaded authors from context if available
+        if (context.authors && context.authors.has(authorId)) {
+            return context.authors.get(authorId);
+        }
+        
+        // Fallback to individual query if not preloaded
+        const authorEntity = await Entity.FindById(authorId);
         return authorEntity;
+    }
+
+    @GraphQLField({type: "Post", field: "image"})
+    async imageResolver(parent: Entity, args: any, context: any, info: any) {
+        const data = await parent.get(ImageViewComponent);
+        const imageId = data?.value;
+
+        if (context.images && context.images.has(imageId)) {
+            const imageEntity = context.images.get(imageId);
+            if(!imageEntity) return null;
+            const localImageData = await imageEntity.get(LocalImageComponent);
+            return localImageData?.url || null;
+        }
+
+        if(!imageId) return null;
+        const imageEntity = await Entity.FindById(imageId);
+        if(!imageEntity) return null;
+        const localImageData = await imageEntity.get(LocalImageComponent);
+        return localImageData?.url || null;
     }
 
     // #endregion
@@ -175,12 +274,12 @@ class PostService extends BaseService {
     // #region User Field Resolvers
     
     @GraphQLField({type: "User", field: "post"})
-    async postsResolver(parent: Entity, args: any, context: any): Promise<Entity[]> {
+    async postsResolver(parent: Entity, args: any, context: any, info: any): Promise<Entity[]> {
         const query = new Query()
             .with(PostTag)
             .with(AuthorComponent, 
                 Query.filters(
-                    Query.filter("value", "=", parent.id),
+                    Query.filter("value", Query.filterOp.EQ, parent.id),
                 )
             );
 

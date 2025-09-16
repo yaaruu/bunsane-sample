@@ -8,7 +8,8 @@ import {
     GraphQLObjectType, 
     GraphQLFieldTypes,
     type ResolverInput,
-    type GraphQLType
+    type GraphQLType,
+    GraphQLScalarType
 } from "bunsane/gql";
 import { 
     Entity, 
@@ -88,6 +89,7 @@ const UserInputs = {
     name: "User",
     fields: userFields
 })
+@GraphQLScalarType("Date")
 class UserService extends BaseService {
     @Post("/auth/login")
     async userLogin(req: Request, res: Response) {

@@ -15,6 +15,8 @@ export default class MyApp extends App {
         ServiceRegistry.registerService(new UserService());
         ServiceRegistry.registerService(new PostService());
 
+        this.addStaticAssets("/uploads", "./public/uploads");
+
         const jwtPlugin = useJWT({
             signingKeyProviders: [
                 createInlineSigningKeyProvider(signinKey)
