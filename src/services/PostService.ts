@@ -126,13 +126,24 @@ class PostService extends BaseService {
     })
     @timed("PostService.posts")
     async posts(args: ResolverInput<typeof PostInputs.posts>, context: any, info: any): Promise<Entity[]> {
+        // Build query with eager loading based on requested fields
         const query = new Query().with(PostTag);
+        
+        // Always load core components (id is always needed)
+        const componentsToLoad: (new () => BaseComponent)[] = [TitleComponent, ContentComponent, DateComponent];
+        if (isFieldRequested(info, 'author')) {
+            componentsToLoad.push(AuthorComponent);
+        }
+        if (isFieldRequested(info, 'image')) {
+            componentsToLoad.push(ImageViewComponent);
+        }
+        query.eagerLoad(componentsToLoad);
         if (args.id) {
             query.findById(args.id);
         }
         const entities = await query.exec();
-
-        if(isFieldRequested(info, 'image')) {
+        // Related entities still use BatchLoader (optimized separately)
+        if (isFieldRequested(info, 'image')) {
             context.images = await BatchLoader.loadRelatedEntities(
                 entities,
                 ImageViewComponent,
@@ -141,7 +152,6 @@ class PostService extends BaseService {
         }
        
         if (isFieldRequested(info, 'author')) {
-            // Batch load authors using the utility
             context.authors = await BatchLoader.loadRelatedEntities(
                 entities,
                 AuthorComponent,
@@ -275,6 +285,12 @@ class PostService extends BaseService {
     
     @GraphQLField({type: "User", field: "post"})
     async postsResolver(parent: Entity, args: any, context: any, info: any): Promise<Entity[]> {
+        // Use preloaded posts if available
+        if (context.postsByAuthor && context.postsByAuthor.has(parent.id)) {
+            return context.postsByAuthor.get(parent.id);
+        }
+
+        // Fallback to individual query
         const query = new Query()
             .with(PostTag)
             .with(AuthorComponent, 
@@ -291,4 +307,4 @@ class PostService extends BaseService {
 }
 
 export default PostService;
-export { PostTag, TitleComponent, ContentComponent, AuthorComponent };
+export { PostTag, TitleComponent, ContentComponent, AuthorComponent, ImageViewComponent };

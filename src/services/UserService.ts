@@ -9,7 +9,8 @@ import {
     GraphQLFieldTypes,
     type ResolverInput,
     type GraphQLType,
-    GraphQLScalarType
+    GraphQLScalarType,
+    isFieldRequested
 } from "bunsane/gql";
 import { 
     Entity, 
@@ -25,6 +26,7 @@ import * as z from "zod";
 
 import jwt from "jsonwebtoken";
 import { Authenticated } from "src/helpers/AuthHelper";
+import { PostTag, AuthorComponent, TitleComponent, ImageViewComponent } from "./PostService";
 
 @Component
 export class UserTag extends BaseComponent {}
@@ -159,7 +161,7 @@ class UserService extends BaseService {
         input: UserInputs.users,
         output: "[User]"
     })
-    async getUsers(args: ResolverInput<typeof UserInputs.users>, context: any) {
+    async getUsers(args: ResolverInput<typeof UserInputs.users>, context: any, info: any) {
         Authenticated(context.request, context);
         //TODO: Remove debug logs
         console.log("userId:");
@@ -170,6 +172,34 @@ class UserService extends BaseService {
             query.findById(id);
         }
         const entities = await query.exec();
+
+        // Preload posts for all users to avoid N+1 queries only if 'post' field is requested
+        if (entities.length > 0 && isFieldRequested(info, 'post')) {
+            const userIds = entities.map(e => e.id);
+            const allPosts = await new Query()
+                .with(PostTag)
+                .with(AuthorComponent, 
+                    Query.filters(
+                        Query.filter("value", Query.filterOp.IN, userIds)
+                    )
+                )
+                .eagerLoad([TitleComponent, ImageViewComponent])
+                .exec();
+
+            const postsByAuthor = new Map<string, Entity[]>();
+            for (const post of allPosts) {
+                const authorComp = await post.get(AuthorComponent);
+                const authorId = authorComp?.value;
+                if (authorId) {
+                    if (!postsByAuthor.has(authorId)) {
+                        postsByAuthor.set(authorId, []);
+                    }
+                    postsByAuthor.get(authorId)!.push(post);
+                }
+            }
+            context.postsByAuthor = postsByAuthor;
+        }
+
         return entities;
     }
     // #endregion
