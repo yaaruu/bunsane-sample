@@ -42,19 +42,11 @@ export class PhoneComponent extends BaseComponent {
     @CompData()
     value: string = "";
 }
-
 @Component
 export class PasswordComponent extends BaseComponent {
     @CompData()
     value: string = "";
 }
-
-type UserData = {
-    name: string;
-    email: string;
-    password: string;
-    phone?: string;
-};
 
 const UserArcheType = new ArcheType([
     UserTag,
@@ -140,9 +132,10 @@ class UserService extends BaseService {
             const entity = UserArcheType.fill(input)
                 .createEntity();
             await entity.save();
+
             return new Response(JSON.stringify({
                 message: "User registered successfully",
-                userId: entity.id
+                user: (await UserArcheType.Unwrap(entity, ['password']))
             }), { status: 201 });
         } catch (err) {
             if (err instanceof z.ZodError) {
