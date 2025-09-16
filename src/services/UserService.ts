@@ -123,7 +123,7 @@ class UserService extends BaseService {
                 .with(UserTag)
                 .with(EmailComponent, 
                     Query.filters(
-                        Query.filter("value", "=", input.email)
+                        Query.filter("value", Query.filterOp.EQ, input.email)
                     )
                 )
                 .exec();
@@ -221,7 +221,7 @@ class UserService extends BaseService {
                 .with(UserTag)
                 .with(EmailComponent, 
                     Query.filters(
-                        Query.filter("value", "=", input.email)
+                        Query.filter("value", Query.filterOp.EQ, input.email)
                     )
                 )
                 .exec();
@@ -269,7 +269,7 @@ class UserService extends BaseService {
                     .with(UserTag)
                     .with(EmailComponent, 
                         Query.filters(
-                            Query.filter("value", "=", input.email)
+                            Query.filter("value", Query.filterOp.EQ, input.email)
                         )
                     )
                     .exec();

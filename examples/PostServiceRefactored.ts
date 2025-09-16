@@ -1,3 +1,8 @@
+/**
+ * PostService Refactored - Using Bunsane Upload System
+ * This example shows how to refactor the original PostService to use the new upload system
+ */
+
 import {
     BaseService,
 } from "bunsane/service";
@@ -23,10 +28,15 @@ import {
     BatchLoader
 } from "bunsane";
 import { timed } from "bunsane/core/Decorators";
-import { UploadHelper } from "bunsane/utils/UploadHelper";
-import { UploadComponent } from "bunsane/core/components/UploadComponent";
 
-
+// Import the new upload system
+import { 
+    UploadHelper, 
+    UploadComponent, 
+    ImageMetadataComponent,
+    UploadDecorators,
+    IMAGE_UPLOAD_CONFIG 
+} from "bunsane/upload";
 
 const PostInputs = {
     posts: {
@@ -70,19 +80,13 @@ class DateComponent extends BaseComponent {
     value: Date = new Date();
 }
 
-@Component
-class ImageViewComponent extends BaseComponent { // Relation to Image Entity
-    @CompData()
-    value: string | null = "";
-}
-
 const PostArcheType = new ArcheType([
     PostTag,
     TitleComponent,
     ContentComponent,
     AuthorComponent,
     DateComponent,
-    ImageViewComponent
+    UploadComponent // Include upload component in archetype
 ]);
 
 const postFields = {
@@ -94,6 +98,7 @@ const postFields = {
     comments: "[Comment]" as GraphQLType,
     image: GraphQLFieldTypes.STRING_OPTIONAL,
 };
+
 @GraphQLObjectType({
     name: "Post",
     fields: postFields
@@ -110,7 +115,7 @@ const postFields = {
 })
 @GraphQLScalarType("Date")
 @GraphQLScalarType("Upload")
-class PostService extends BaseService {
+class PostServiceRefactored extends BaseService {
     // #region Post Queries
     
     @GraphQLOperation({
@@ -118,37 +123,32 @@ class PostService extends BaseService {
         input: PostInputs.posts,
         output: "[Post]"
     })
-    @timed("PostService.posts")
+    @timed("PostServiceRefactored.posts")
     async posts(args: ResolverInput<typeof PostInputs.posts>, context: any, info: any): Promise<Entity[]> {
-        // Build query with eager loading based on requested fields
         const query = new Query().with(PostTag);
         
-        // Always load core components (id is always needed)
-        const componentsToLoad: (new () => BaseComponent)[] = [TitleComponent, ContentComponent, DateComponent];
+        const componentsToLoad: (new () => BaseComponent)[] = [
+            TitleComponent, 
+            ContentComponent, 
+            DateComponent
+        ];
+        
         if (isFieldRequested(info, 'author')) {
             componentsToLoad.push(AuthorComponent);
         }
         if (isFieldRequested(info, 'image')) {
-            componentsToLoad.push(ImageViewComponent);
+            componentsToLoad.push(UploadComponent);
         }
         
-        // Use eagerLoadComponents for better performance
         query.eagerLoadComponents(componentsToLoad);
         
         if (args.id) {
             query.findById(args.id);
         }
+        
         const entities = await query.exec();
         
-        // Use loadRelatedEntitiesBatched for optimal relationship loading
-        if (isFieldRequested(info, 'image')) {
-            context.images = await BatchLoader.loadRelatedEntitiesBatched(
-                entities,
-                ImageViewComponent,
-                Entity.LoadMultiple
-            );
-        }
-       
+        // Batch load authors if needed
         if (isFieldRequested(info, 'author')) {
             context.authors = await BatchLoader.loadRelatedEntitiesBatched(
                 entities,
@@ -156,6 +156,7 @@ class PostService extends BaseService {
                 Entity.LoadMultiple
             );
         }
+        
         return entities;
     }
 
@@ -168,10 +169,14 @@ class PostService extends BaseService {
         input: PostInputs.createPost,
         output: "Post"
     })
-    async createPost(args: ResolverInput<typeof PostInputs.createPost>, context: any, info: any): Promise<Entity> {
+    async createPost(
+        args: ResolverInput<typeof PostInputs.createPost>, 
+        context: any, 
+        info: any
+    ): Promise<Entity> {
         try {
             const author = await Entity.FindById(args.author);
-            if(!author) {
+            if (!author) {
                 throw responseError("Author not found", {
                     extensions: {
                         code: "AUTHOR_NOT_FOUND",
@@ -179,54 +184,91 @@ class PostService extends BaseService {
                     }
                 });
             }
+
+            // Create post entity
             const post = PostArcheType.fill({
-                ...args,
+                title: args.title,
+                content: args.content,
+                author: args.author,
                 date: args.date ? new Date(args.date) : undefined
             }).createEntity();
 
-            const imageEntity = args.image ? Entity.Create() : null;
-            
-            if(imageEntity && args.image) {
-                const image = args.image as File;
-                
-                // Use the new Upload Feature to handle file uploads
+            // Handle image upload using the new upload system
+            if (args.image) {
                 const uploadResult = await UploadHelper.processUploadForEntity(
-                    imageEntity,
-                    image,
-                    {
-                        allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "image/webp"],
-                        maxFileSize: 10 * 1024 * 1024, // 10MB
-                        uploadPath: "uploads",
-                        namingStrategy: "uuid",
-                        generateThumbnails: true
-                    }
+                    post,
+                    args.image as File,
+                    IMAGE_UPLOAD_CONFIG
                 );
 
                 if (!uploadResult.success) {
-                    throw responseError(`File upload failed: ${uploadResult.error?.message}`, {
+                    throw responseError("Image upload failed", {
                         extensions: {
                             code: "UPLOAD_FAILED",
-                            field: "image",
                             details: uploadResult.error
                         }
                     });
                 }
-
-                await imageEntity.save();
             }
 
-            post.add(ImageViewComponent, {value: imageEntity ? imageEntity.id : null});
             await post.save();
             return post;
+            
         } catch (err) {
             handleGraphQLError(err);
         }
-        
+    }
+
+    /**
+     * Add image to existing post
+     */
+    @GraphQLOperation({
+        type: "Mutation",
+        input: {
+            postId: GraphQLFieldTypes.ID_REQUIRED,
+            image: "Upload!" as GraphQLType
+        },
+        output: "Post"
+    })
+    async addImageToPost(
+        args: { postId: string; image: File },
+        context: any
+    ): Promise<Entity | null> {
+        try {
+            const post = await Entity.FindById(args.postId);
+            if (!post) {
+                throw responseError("Post not found", {
+                    extensions: { code: "POST_NOT_FOUND" }
+                });
+            }
+
+            // Replace existing upload if present
+            const uploadResult = await UploadHelper.replaceUploadForEntity(
+                post,
+                args.image,
+                IMAGE_UPLOAD_CONFIG
+            );
+
+            if (!uploadResult.success) {
+                throw responseError("Image upload failed", {
+                    extensions: {
+                        code: "UPLOAD_FAILED",
+                        details: uploadResult.error
+                    }
+                });
+            }
+
+            await post.save();
+            return post;
+
+        } catch (err) {
+            handleGraphQLError(err);
+        }
     }
 
     // #endregion
 
-    // #region Post Field Resolvers
+    // #region Field Resolvers
 
     @GraphQLField({type: "Post", field: "id"})
     async idResolver(parent: Entity, args: any, context: any, info: any) {
@@ -262,56 +304,83 @@ class PostService extends BaseService {
             return context.authors.get(authorId);
         }
         
-        // Fallback to individual query if not preloaded
+        // Fallback to individual query
         const authorEntity = await Entity.FindById(authorId);
         return authorEntity;
     }
 
     @GraphQLField({type: "Post", field: "image"})
     async imageResolver(parent: Entity, args: any, context: any, info: any) {
-        const data = await parent.get(ImageViewComponent);
-        const imageId = data?.value;
-
-        if (context.images && context.images.has(imageId)) {
-            const imageEntity = context.images.get(imageId);
-            if(!imageEntity) return null;
-            const uploadData = await imageEntity.get(UploadComponent);
-            return uploadData?.url || null;
+        const uploadData = await parent.get(UploadComponent);
+        
+        if (!uploadData) {
+            return null;
         }
+        
+        // Return the image URL
+        return uploadData.url;
+    }
 
-        if(!imageId) return null;
-        const imageEntity = await Entity.FindById(imageId);
-        if(!imageEntity) return null;
-        const uploadData = await imageEntity.get(UploadComponent);
-        return uploadData?.url || null;
+    /**
+     * Additional resolver for getting detailed image information
+     */
+    @GraphQLField({type: "Post", field: "imageDetails"})
+    async imageDetailsResolver(parent: Entity, args: any, context: any, info: any) {
+        const uploadData = await parent.get(UploadComponent);
+        const imageMetadata = await parent.get(ImageMetadataComponent);
+        
+        if (!uploadData) {
+            return null;
+        }
+        
+        return {
+            url: uploadData.url,
+            fileName: uploadData.fileName,
+            originalFileName: uploadData.originalFileName,
+            size: uploadData.size,
+            mimeType: uploadData.mimeType,
+            width: imageMetadata?.width || 0,
+            height: imageMetadata?.height || 0,
+            thumbnails: imageMetadata ? JSON.parse(imageMetadata.thumbnails || '[]') : []
+        };
     }
 
     // #endregion
 
-    // #region User Field Resolvers
-    
-    @GraphQLField({type: "User", field: "post"})
-    async postsResolver(parent: Entity, args: any, context: any, info: any): Promise<Entity[]> {
-        // Use preloaded posts if available
-        if (context.postsByAuthor && context.postsByAuthor.has(parent.id)) {
-            return context.postsByAuthor.get(parent.id);
+    // #region Utility Methods
+
+    /**
+     * Get storage usage for all posts
+     */
+    async getPostsStorageUsage(): Promise<number> {
+        const posts = await new Query().with(PostTag).exec();
+        let totalUsage = 0;
+        
+        for (const post of posts) {
+            const usage = await UploadHelper.getEntityStorageUsage(post);
+            totalUsage += usage;
         }
+        
+        return totalUsage;
+    }
 
-        // Fallback to individual query
-        const query = new Query()
-            .with(PostTag)
-            .with(AuthorComponent, 
-                Query.filters(
-                    Query.filter("value", Query.filterOp.EQ, parent.id),
-                )
-            );
-
-        const entities = await query.exec();
-        return entities;
+    /**
+     * Clean up orphaned uploads
+     */
+    async cleanupOrphanedUploads(): Promise<number> {
+        const posts = await new Query().with(PostTag).exec();
+        let totalCleaned = 0;
+        
+        for (const post of posts) {
+            const cleaned = await UploadHelper.cleanupOrphanedUploads(post);
+            totalCleaned += cleaned;
+        }
+        
+        return totalCleaned;
     }
 
     // #endregion
 }
 
-export default PostService;
-export { PostTag, TitleComponent, ContentComponent, AuthorComponent, ImageViewComponent };
+export default PostServiceRefactored;
+export { PostTag, TitleComponent, ContentComponent, AuthorComponent };
