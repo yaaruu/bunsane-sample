@@ -22,6 +22,7 @@ import {
     responseError, 
     handleGraphQLError 
 } from "bunsane";
+import type { GraphQLContext, GraphQLInfo } from "bunsane/types/graphql.types";
 import * as z from "zod";
 
 import jwt from "jsonwebtoken";
@@ -161,7 +162,10 @@ class UserService extends BaseService {
         input: UserInputs.users,
         output: "[User]"
     })
-    async getUsers(args: ResolverInput<typeof UserInputs.users>, context: any, info: any) {
+    async getUsers(args: ResolverInput<typeof UserInputs.users>, context: GraphQLContext, info: GraphQLInfo) {
+        if (!context.request) {
+            throw new Error("Request context is required");
+        }
         Authenticated(context.request, context);
         const { id } = args;
         const query = new Query().with(UserTag);
@@ -231,7 +235,7 @@ class UserService extends BaseService {
         input: UserInputs.register,
         output: "User"
     })
-    async registerUser(args: ResolverInput<typeof UserInputs.register>, context: any ) {
+    async registerUser(args: ResolverInput<typeof UserInputs.register>, context: GraphQLContext ) {
         try {
             const input = RegisterValidationSchema.parse(args);
             const check = await new Query()
@@ -264,7 +268,7 @@ class UserService extends BaseService {
         input: UserInputs.updateUser,
         output: "User"
     })
-    async updateUser(args: ResolverInput<typeof UserInputs.updateUser>, context: any) {
+    async updateUser(args: ResolverInput<typeof UserInputs.updateUser>, context: GraphQLContext) {
         try {
             const input = UpdateValidationSchema.parse(args);
             const query = new Query()
@@ -314,24 +318,24 @@ class UserService extends BaseService {
     // #region Field Resolvers
     
     @GraphQLField({type: "User", field: "id"})
-    idResolver(parent: Entity, args: any, context: any) {
+    idResolver(parent: Entity, args: any, context: GraphQLContext) {
         return parent.id;
     }
 
     @GraphQLField({type: "User", field: "email"})
-    async emailResolver(parent: Entity, args: any, context: any) {
+    async emailResolver(parent: Entity, args: any, context: GraphQLContext) {
         const data = await parent.get(EmailComponent);
         return data?.value ?? "";
     }
 
     @GraphQLField({type: "User", field: "phone"})
-    async phoneResolver(parent: Entity, args: any, context: any) {
+    async phoneResolver(parent: Entity, args: any, context: GraphQLContext) {
         const data = await parent.get(PhoneComponent);
         return data?.value ?? null;
     }
 
     @GraphQLField({type: "User", field: "name"})
-    async nameResolver(parent: Entity, args: any, context: any) {
+    async nameResolver(parent: Entity, args: any, context: GraphQLContext) {
         const data = await parent.get(NameComponent);
         return data?.value ?? "";
     }

@@ -22,6 +22,7 @@ import {
     handleGraphQLError,
     BatchLoader
 } from "bunsane";
+import type { GraphQLContext, GraphQLInfo } from "bunsane/types/graphql.types";
 import { timed } from "bunsane/core/Decorators";
 import { UploadHelper } from "bunsane/utils/UploadHelper";
 import { UploadComponent } from "bunsane/core/components/UploadComponent";
@@ -119,7 +120,7 @@ class PostService extends BaseService {
         output: "[Post]"
     })
     @timed("PostService.posts")
-    async posts(args: ResolverInput<typeof PostInputs.posts>, context: any, info: any): Promise<Entity[]> {
+    async posts(args: ResolverInput<typeof PostInputs.posts>, context: GraphQLContext, info: GraphQLInfo): Promise<Entity[]> {
         // Build query with eager loading based on requested fields
         const query = new Query().with(PostTag);
         
@@ -177,7 +178,7 @@ class PostService extends BaseService {
         input: PostInputs.createPost,
         output: "Post"
     })
-    async createPost(args: ResolverInput<typeof PostInputs.createPost>, context: any, info: any): Promise<Entity> {
+    async createPost(args: ResolverInput<typeof PostInputs.createPost>, context: GraphQLContext, info: GraphQLInfo): Promise<Entity> {
         try {
             const author = await Entity.FindById(args.author);
             if(!author) {
@@ -238,30 +239,30 @@ class PostService extends BaseService {
     // #region Post Field Resolvers
 
     @GraphQLField({type: "Post", field: "id"})
-    async idResolver(parent: Entity, args: any, context: any, info: any) {
+    async idResolver(parent: Entity, args: any, context: GraphQLContext, info: GraphQLInfo) {
         return parent.id;
     }
     
     @GraphQLField({type: "Post", field: "title"})
-    async titleResolver(parent: Entity, args: any, context: any, info: any) {
+    async titleResolver(parent: Entity, args: any, context: GraphQLContext, info: GraphQLInfo) {
         const data = await parent.get(TitleComponent);
         return data?.value || "";
     }
 
     @GraphQLField({type: "Post", field: "content"})
-    async contentResolver(parent: Entity, args: any, context: any, info: any) {
+    async contentResolver(parent: Entity, args: any, context: GraphQLContext, info: GraphQLInfo) {
         const data = await parent.get(ContentComponent);
         return data?.value || "";
     }
 
     @GraphQLField({type: "Post", field: "date"})
-    async dateResolver(parent: Entity, args: any, context: any, info: any) {
+    async dateResolver(parent: Entity, args: any, context: GraphQLContext, info: GraphQLInfo) {
         const data = await parent.get(DateComponent);
         return data?.value || null;
     }
 
     @GraphQLField({type: "Post", field: "author"})
-    async authorResolver(parent: Entity, args: any, context: any, info: any) {
+    async authorResolver(parent: Entity, args: any, context: GraphQLContext, info: GraphQLInfo) {
         const data = await parent.get(AuthorComponent);
         const authorId = data?.value;
         if (!authorId) return null;
@@ -277,11 +278,11 @@ class PostService extends BaseService {
     }
 
     @GraphQLField({type: "Post", field: "image"})
-    async imageResolver(parent: Entity, args: any, context: any, info: any) {
+    async imageResolver(parent: Entity, args: any, context: GraphQLContext, info: GraphQLInfo) {
         const data = await parent.get(ImageViewComponent);
         const imageId = data?.value;
 
-        if (context.images && context.images.has(imageId)) {
+        if (context.images && imageId && context.images.has(imageId)) {
             const imageEntity = context.images.get(imageId);
             if(!imageEntity) return null;
             const uploadData = await imageEntity.get(UploadComponent);
@@ -300,10 +301,11 @@ class PostService extends BaseService {
     // #region User Field Resolvers
     
     @GraphQLField({type: "User", field: "post"})
-    async postsResolver(parent: Entity, args: any, context: any, info: any): Promise<Entity[]> {
+    async postsResolver(parent: Entity, args: any, context: GraphQLContext, info: GraphQLInfo): Promise<Entity[]> {
         // Use preloaded posts if available
         if (context.postsByAuthor && context.postsByAuthor.has(parent.id)) {
-            return context.postsByAuthor.get(parent.id);
+            const posts = context.postsByAuthor.get(parent.id);
+            return posts || [];
         }
 
         // Fallback to individual query
