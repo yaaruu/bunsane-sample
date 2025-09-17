@@ -1,6 +1,6 @@
 import {
     App,
-    ServiceRegistry,
+    ServiceRegistry
 } from "bunsane";
 import { createInlineSigningKeyProvider, extractFromHeader, useJWT } from "@graphql-yoga/plugin-jwt";
 
@@ -12,8 +12,11 @@ import PostService from "./src/services/PostService";
 export default class MyApp extends App {
     constructor() {
         super();
-        ServiceRegistry.registerService(new UserService());
-        ServiceRegistry.registerService(new PostService());
+        const userService = new UserService();
+        const postService = new PostService();
+        
+        ServiceRegistry.registerService(userService);
+        ServiceRegistry.registerService(postService);
 
         this.addStaticAssets("/uploads", "./public/uploads");
 

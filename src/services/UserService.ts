@@ -20,7 +20,10 @@ import {
     ArcheType,
     Query, 
     responseError, 
-    handleGraphQLError 
+    handleGraphQLError, 
+    ComponentTargetHook,
+    type EntityCreatedEvent,
+    logger
 } from "bunsane";
 import type { GraphQLContext, GraphQLInfo } from "bunsane/types/graphql.types";
 import * as z from "zod";
@@ -95,6 +98,17 @@ const UserInputs = {
 })
 @GraphQLScalarType("Date")
 class UserService extends BaseService {
+
+    @ComponentTargetHook("entity.created", {
+        includeComponents: [UserTag, EmailComponent]
+    })
+    async onUserCreate(event: EntityCreatedEvent) {
+        const emailComp = await event.entity.get(EmailComponent);
+        logger.info(`New user created with email: ${emailComp?.value}`);
+        // Here you could add logic to send a welcome email, etc.
+    }
+
+
     @Post("/auth/login")
     async userLogin(req: Request, res: Response) {
         const testJwt = jwt.sign({userId: "test-user-id"}, process.env.JWT_SECRET || "secret", {
