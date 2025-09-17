@@ -23,7 +23,9 @@ import {
     handleGraphQLError, 
     ComponentTargetHook,
     type EntityCreatedEvent,
-    logger
+    logger,
+    ScheduledTask,
+    ScheduleInterval
 } from "bunsane";
 import type { GraphQLContext, GraphQLInfo } from "bunsane/types/graphql.types";
 import * as z from "zod";
@@ -98,6 +100,14 @@ const UserInputs = {
 })
 @GraphQLScalarType("Date")
 class UserService extends BaseService {
+
+    @ScheduledTask({
+        interval: ScheduleInterval.MINUTE,
+        componentTarget: UserTag
+    })
+    async checkUserPerMinutes(entities: Entity[]) {
+        logger.info(`Scheduled Task: checkUserPerMinutes executed for ${entities.length} users`);
+    }
 
     @ComponentTargetHook("entity.created", {
         includeComponents: [UserTag, EmailComponent]
@@ -372,3 +382,4 @@ const UpdateValidationSchema = z.object({
 })
 
 export default UserService;
+
