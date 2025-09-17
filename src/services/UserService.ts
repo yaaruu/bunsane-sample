@@ -26,7 +26,8 @@ import * as z from "zod";
 
 import jwt from "jsonwebtoken";
 import { Authenticated } from "src/helpers/AuthHelper";
-import { PostTag, AuthorComponent, TitleComponent, ImageViewComponent } from "./PostService";
+import { eagerComponentsForInfo } from "../helpers/gqlEagerLoader";
+import { PostTag, AuthorComponent, TitleComponent, ContentComponent, ImageViewComponent } from "./PostService";
 
 @Component
 export class UserTag extends BaseComponent {}
@@ -168,14 +169,34 @@ class UserService extends BaseService {
             query.findById(id);
         }
         
-        // Use eagerLoadComponents for better performance when loading user data
-        query.eagerLoadComponents([NameComponent, EmailComponent, PhoneComponent]);
+        // map selection names to components to eager-load
+        const mapping = {
+            name: [NameComponent],
+            email: [EmailComponent],
+            phone: [PhoneComponent]
+        };
+        const toLoad = eagerComponentsForInfo(info, mapping);
+        if (toLoad.length > 0) {
+            query.eagerLoadComponents(toLoad);
+        }
         
         const entities = await query.exec();
 
         // Preload posts for all users using optimized batching only if 'post' field is requested
         if (entities.length > 0 && isFieldRequested(info, 'post')) {
             const userIds = entities.map(e => e.id);
+            
+            // Create mapping for post fields to components
+            const postMapping = {
+                'post.title': [TitleComponent],
+                'post.content': [ContentComponent],
+                'post.image': [ImageViewComponent],
+                'post.author': [AuthorComponent]
+            };
+            
+            // Use helper to determine which components to load based on requested post fields
+            const postComponentsToLoad = eagerComponentsForInfo(info, postMapping);
+            
             const allPosts = await new Query()
                 .with(PostTag)
                 .with(AuthorComponent, 
@@ -183,7 +204,7 @@ class UserService extends BaseService {
                         Query.filter("value", Query.filterOp.IN, userIds)
                     )
                 )
-                .eagerLoadComponents([TitleComponent, ImageViewComponent])
+                .eagerLoadComponents(postComponentsToLoad)
                 .exec();
 
             const postsByAuthor = new Map<string, Entity[]>();
