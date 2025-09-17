@@ -138,6 +138,15 @@ class PostService extends BaseService {
         if (args.id) {
             query.findById(args.id);
         }
+        
+        // Apply pagination if provided
+        if (args.limit) {
+            query.take(args.limit);
+        }
+        if (args.offset) {
+            query.offset(args.offset);
+        }
+        
         const entities = await query.exec();
         
         // Use loadRelatedEntitiesBatched for optimal relationship loading
