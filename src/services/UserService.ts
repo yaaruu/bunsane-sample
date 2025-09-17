@@ -103,7 +103,9 @@ class UserService extends BaseService {
 
     @ScheduledTask({
         interval: ScheduleInterval.MINUTE,
-        componentTarget: UserTag
+        componentTarget: {
+            includeComponents: [UserTag],
+        }
     })
     async checkUserPerMinutes(entities: Entity[]) {
         logger.info(`Scheduled Task: checkUserPerMinutes executed for ${entities.length} users`);
